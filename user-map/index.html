@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Canvas Hexagons</title>
+    <style>
+      body {
+        background-color: lightgrey;
+        overflow: hidden;
+        min-height: 100%;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      #canvas {
+        border: 1px solid black;
+      }
+
+      .fullscreen-container {
+        position: fixed;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 1);
+        z-index: 1000;
+      }
+
+      .loading {
+        width: 100px;
+        height: 100px;
+        border: 16px solid #f3f3f3;
+        border-top: 16px solid #3498db;
+        border-radius: 50%;
+        animation: spin 2s linear infinite;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .wrap {
+        display: inline-block;
+        position: relative;
+        left: 50%;
+        top: 50%;
+        transform: translateX(-50%) translateY(-50%);
+        background-color: black;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="fullscreen-container">
+        <div class="loading"></div>
+      </div>
+      <canvas id="canvas" class="panzoom" width="3982" height="5232"></canvas>
+    </div>
+    <script src="./panzoom.js"></script>
+    <script src="https://rawgit.com/kawanet/msgpack-lite/master/dist/msgpack.min.js"></script>
+    <script>
+      window.onload = function () {
+        PanZoom(".panzoom", {
+          increment: 0.1,
+          minScale: 0.2,
+          maxScale: 1,
+        });
+      };
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      const imageUrl = "bigMap.jpg";
+      const w = 3982,
+        h = 5232;
+      const hexRadius = 36;
+      const borderWeight = 2;
+
+      const hexHeight = Math.sqrt(3) * (hexRadius + borderWeight);
+      const hexWidth = 2 * (hexRadius + borderWeight);
+      const vertDist = hexHeight;
+      const horizDist = hexWidth * 0.75;
+
+      const img = new Image();
+      img.src = imageUrl;
+
+      const hexagonsToPaint = new Map();
+
+      const hexPoints = Array.from({ length: 6 }, (_, i) => {
+        const angle = (Math.PI / 3) * i;
+        return [Math.sin(angle), Math.cos(angle)];
+      });
+
+      function drawHexagon(hex) {
+        const { row, col } = convertHexagonIdToHexagon(hex.id);
+
+        if (!hex.active) {
+          return;
+        }
+
+        const y = h - row * vertDist - (col % 2) * (hexHeight / 2) + 2.6;
+        const x = col * horizDist - 9.3;
+
+        ctx.beginPath();
+        hexPoints.forEach(([dy, dx], i) => {
+          const px = x + (hexRadius + borderWeight) * dx;
+          const py = y + (hexRadius + borderWeight) * dy;
+          if (i === 0) {
+            ctx.moveTo(px, py);
+          } else {
+            ctx.lineTo(px, py);
+          }
+        });
+        ctx.closePath();
+
+        ctx.fillStyle = "#FFF5DC";
+        ctx.globalAlpha = 1;
+        ctx.fill();
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = borderWeight;
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+      }
+
+      async function drawHexagons() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        await Promise.all(
+          Array.from(hexagonsToPaint.values()).map((hex) => drawHexagon(hex))
+        );
+
+        return Promise.resolve();
+      }
+
+      const hostname = window.location.hostname;
+      let wsURL = ''
+
+      if (hostname === "localhost") {
+        wsURL = `ws://${hostname}:7555`;
+      } else {
+        wsURL = `wss://${hostname}/ws`;
+      }
+      const socket = new WebSocket(wsURL);
+
+      socket.addEventListener("open", function (data) {
+        console.log("Conexión WebSocket abierta");
+      });
+
+      socket.addEventListener("message", async function (event) {
+        var blob = event.data;
+        const arrayBuffer = await blob.arrayBuffer();
+        const { payload: currentHexagons, action } = msgpack.decode(
+          new Uint8Array(arrayBuffer)
+        );
+        switch (action) {
+          case "initial-hexagons":
+            currentHexagons.forEach((hex) => {
+              const { row, col } = convertHexagonIdToHexagon(hex.id);
+              hexagonsToPaint.set(hex.id, {
+                ...hex,
+                active: hex.status === "hidden",
+              });
+            });
+
+            await drawHexagons();
+
+            setTimeout(async () => {
+              document.querySelector(".fullscreen-container").style.opacity = 0;
+              document.querySelector(".fullscreen-container").style.transition =
+                "opacity 0.5s";
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              document.querySelector(".fullscreen-container").style.display =
+                "none";
+            }, 1000);
+
+            logMessage("Hexágonos iniciales pintados");
+            break;
+          case "hexagon-update":
+            const { id, status } = currentHexagons;
+            const isActive = status === "hidden";
+
+            if (isActive) {
+              hexagonsToPaint.set(id, { id, active: isActive });
+            } else {
+              hexagonsToPaint.delete(id);
+            }
+
+            logMessage(`Hexagono ${id} actualizado a ${status}`);
+            await drawHexagons();
+            break;
+          case "pong":
+            logMessage("Pong");
+            break;
+          case "clear":
+            hexagonsToPaint.clear();
+            await drawHexagons();
+            break;
+          default:
+            break;
+        }
+      });
+
+      socket.addEventListener("close", function () {
+        logMessage("Conexión WebSocket cerrada");
+      });
+
+      setInterval(() => {
+        socket.send(msgpack.encode({ action: "ping" }));
+      }, 5000);
+
+      function convertHexagonIdToHexagon(hexId) {
+        const [row, col] = hexId.split("-");
+        return { row: parseInt(row), col: parseInt(col) };
+      }
+
+      function logMessage(message) {
+        console.log(
+          `%c[${new Date().toLocaleTimeString()}]: %c${message}`,
+          "color: red",
+          "color: white"
+        );
+      }
+    </script>
+  </body>
+</html>

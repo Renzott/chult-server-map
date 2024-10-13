@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hexagonal Map with Leaflet</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      #map {
+        width: 100%;
+        height: 100vh;
+      }
+
+      .leaflet-container {
+        background: black;
+        outline: 0;
+      }
+
+      #save-button {
+        margin: 10px;
+        padding: 10px 20px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        cursor: pointer;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script src="https://rawgit.com/kawanet/msgpack-lite/master/dist/msgpack.min.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+      // get param query string from url, key is the param name
+      let params = new URL(document.location).searchParams
+      let key = params.get("key")
+      document.cookie = `key=${key}`
+
+      // if key is null, redirect to google.com
+      if (key == "null") {
+        window.location.href = "https://www.google.com"
+      }
+
+      const imageUrl = "bigMap.jpg"
+      const w = 3982,
+        h = 5232
+      const hexRadius = 36
+      const borderWeight = 2
+
+      const hexHeight = Math.sqrt(3) * (hexRadius + borderWeight)
+      const hexWidth = 2 * (hexRadius + borderWeight)
+      const vertDist = hexHeight
+      const horizDist = hexWidth * 0.75
+
+      let index = 0
+
+      const clickedHexagons = new Map()
+
+      // Inicializar el mapa
+      const map = L.map("map", {
+        crs: L.CRS.Simple,
+        minZoom: -2,
+        maxZoom: 1,
+        center: [h / 2, w / 2],
+        zoom: 1,
+        renderer: L.canvas(),
+        attributionControl: false,
+      })
+
+      const imageBounds = [
+        [0, 0],
+        [h, w],
+      ]
+      L.imageOverlay(imageUrl, imageBounds).addTo(map)
+
+      const hexPoints = Array.from({ length: 6 }, (_, i) => {
+        const angle = (Math.PI / 3) * i
+        return [Math.sin(angle), Math.cos(angle)]
+      })
+
+      function drawHexagons() {
+        const bounds = map.getBounds()
+
+        for (let row = 0; row * vertDist < h + hexHeight; row++) {
+          for (let col = 0; col * horizDist < w + hexWidth; col++) {
+            const x = col * horizDist - 9.3
+            const y = row * vertDist + (col % 2) * (hexHeight / 2) - 3.6
+
+            const hexId = `${row}-${col}`
+
+            const points = hexPoints.map(([dy, dx]) => [
+              y + (hexRadius + borderWeight) * dy,
+              x + (hexRadius + borderWeight) * dx,
+            ])
+
+            if (
+              points.every(
+                ([py, px]) => py >= 0 && py <= h && px >= 0 && px <= w
+              )
+            ) {
+              if (bounds.contains([y, x])) {
+                const hex = clickedHexagons.get(hexId)
+
+                if (!hex) continue
+
+                const isActive = hex.status === "visible"
+
+                const newPolygon = L.polygon(points, {
+                  color: isActive ? "transparent" : "red",
+                  fillColor: isActive ? "transparent" : "red",
+                  fillOpacity: isActive ? 0 : 0.3,
+                  weight: borderWeight,
+                }).addTo(map)
+
+                clickedHexagons.set(hexId, {
+                  id: hexId,
+                  status: isActive ? "visible" : "hidden",
+                  polygon: newPolygon,
+                })
+
+                newPolygon.on("click", function () {
+                  const currentHex = clickedHexagons.get(hexId)
+                  const status =
+                    currentHex && currentHex.status === "visible"
+                      ? "hidden"
+                      : "visible"
+
+                  clickedHexagons.set(hexId, {
+                    id: hexId,
+                    status,
+                    polygon: newPolygon,
+                  })
+
+                  updateHexagon(hexId, status)
+
+                  websocket.send(
+                    msgpack.encode({
+                      action: "update-hexagon",
+                      payload: { id: hexId, status },
+                    })
+                  )
+                })
+              }
+            }
+          }
+        }
+      }
+
+      // Conexión al WebSocket
+      const hostname = window.location.hostname
+      let wsURL = ""
+
+      if (hostname === "localhost") {
+        wsURL = `ws://${hostname}:7555`
+      } else {
+        wsURL = `wss://${hostname}/ws`
+      }
+      if (key != null) {
+        wsURL = wsURL + "?key=" + key
+      }
+
+      const websocket = new WebSocket(wsURL)
+
+      websocket.onopen = function () {
+        console.log("Conectado al servidor WebSocket")
+      }
+
+      websocket.onerror = function (error) {
+        window.location.href = "https://www.google.com"
+      }
+
+      websocket.onmessage = async function (event) {
+        var blob = event.data
+        const arrayBuffer = await blob.arrayBuffer()
+        const { payload: currentData, action } = msgpack.decode(
+          new Uint8Array(arrayBuffer)
+        )
+
+        switch (action) {
+          case "initial-hexagons":
+            currentData.forEach((hex) => {
+              clickedHexagons.set(hex.id, {
+                ...hex,
+                polygon: null,
+              })
+            })
+            await drawHexagons()
+            logMessage("Hexágonos iniciales pintados")
+            break
+          case "pong":
+            logMessage("Pong")
+            break
+          case "hexagon-update":
+            const { id: hexId, status } = currentData
+            const hex = clickedHexagons.get(hexId)
+            if (!hex) return
+            updateHexagon(hexId, status)
+            logMessage(`Hexágono ${hexId} actualizado a ${status}`)
+            break
+          default:
+            break
+        }
+      }
+
+      websocket.onclose = function () {
+        console.log("Conexión cerrada")
+      }
+
+      // Función para obtener hexágonos predeterminados
+      function getDefaultHexagons() {
+        console.log(
+          "Hexágonos predeterminados:",
+          Array.from(clickedHexagons.values())
+        )
+      }
+
+      map.on("moveend zoomend", () => {
+        map.eachLayer((layer) => {
+          if (layer instanceof L.Polygon) {
+            map.removeLayer(layer)
+          }
+        })
+        drawHexagons()
+      })
+
+      function updateHexagon(hexId, status) {
+        const hex = clickedHexagons.get(hexId)
+        if (!hex) return
+
+        const isActive = status === "visible"
+
+        if (isActive) {
+          hex.polygon.setStyle({
+            color: "transparent",
+            fillColor: "transparent",
+            fillOpacity: 0,
+          })
+        } else {
+          hex.polygon.setStyle({
+            color: "red",
+            fillColor: "red",
+            fillOpacity: 0.3,
+          })
+        }
+        clickedHexagons.set(hexId, { ...hex, status })
+      }
+
+      setInterval(() => {
+        websocket.send(msgpack.encode({ action: "ping" }))
+      }, 5000)
+
+      function convertHexagonIdToHexagon(hexId) {
+        const [row, col] = hexId.split("-")
+        return { row: parseInt(row), col: parseInt(col) }
+      }
+
+      function logMessage(message) {
+        console.log(
+          `%c[${new Date().toLocaleTimeString()}]: %c${message}`,
+          "color: red",
+          "color: white"
+        )
+      }
+    </script>
+  </body>
+</html>

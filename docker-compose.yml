@@ -1,0 +1,28 @@
+version: "3"
+services:
+  admin-map:
+    image: nginx:latest
+    container_name: admin-map
+    ports:
+      - "9555:80"
+    volumes:
+      - ./admin-map:/usr/share/nginx/html
+    restart: always
+
+  user-map:
+    image: nginx:latest
+    container_name: user-map
+    ports:
+      - "8555:80"
+    volumes:
+      - ./user-map:/usr/share/nginx/html
+    restart: always
+
+  server:
+    build: ./server
+    container_name: server
+    ports:
+      - "7555:7555"
+    volumes:
+      - ./server:/usr/src/app
+    restart: always
