@@ -23,7 +23,16 @@ Bun.serve<WebSocketData>({
     },
     websocket: {
         async open(ws) {
-            console.log('Cliente conectado:', ws.data.masterKey);
+            if (ws.data.masterKey !== MASTER_KEY && ws.data.masterKey !== null) {
+
+                let errorData: MessageData = {
+                    payload: 'Acceso denegado: Master Key no válido.',
+                    action: 'no-access'
+                };
+                ws.send(new Uint8Array(pack(errorData)));
+                ws.close();
+                return;
+            }
             ws.subscribe("hexagon-updates");
             const initialHexagons = await getAllHexagons();
             const initialData: MessageData = {
@@ -35,11 +44,16 @@ Bun.serve<WebSocketData>({
         },
         message(ws, message) {
             let unpackData: MessageData = unpack(message as unknown as Uint8Array);
-
             switch (unpackData.action) {
                 case "update-hexagon":
                     if (ws.data.masterKey !== MASTER_KEY) {
-                        ws.send('Acceso denegado: Master Key no válido.');
+
+                        let errorData: MessageData = {
+                            payload: 'Acceso denegado: Master Key no válido.',
+                            action: 'no-access'
+                        };
+
+                        ws.send(new Uint8Array(pack(errorData)));
                         return;
                     }
                     const { id, status } = unpackData.payload as Hexagon;

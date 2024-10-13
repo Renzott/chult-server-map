@@ -21,6 +21,8 @@ services:
   server:
     build: ./server
     container_name: server
+    environment:
+      MASTER_KEY: ${MASTER_KEY}
     ports:
       - "7555:7555"
     volumes:

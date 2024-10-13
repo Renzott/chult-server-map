@@ -18,7 +18,6 @@ export const getAllHexagons = async (): Promise<Hexagon[]> => {
 export const updateHexagon = async (hexagonId: string, status: string): Promise<void> => {
     const hexagons = await getAllHexagons()
     const hexagon = hexagons.find((hexagon: Hexagon) => hexagon.id === hexagonId)
-    console.log(hexagon)
     if(!hexagon) return;
 
     if (hexagon) {

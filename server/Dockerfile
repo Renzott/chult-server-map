@@ -1,25 +1,25 @@
 # Usa la imagen oficial de Bun
-FROM oven/bun:1 AS base
+FROM --platform=linux/arm64 oven/bun:1 AS base
 
 # Directorio de trabajo dentro del contenedor
 WORKDIR /usr/src/app
 
 # Configura el entorno para desarrollo
-FROM base AS dev
+FROM --platform=linux/arm64 base AS dev
 # Copia solo los archivos necesarios para instalar las dependencias
 COPY package.json bun.lockb ./
 # Instala dependencias (incluye devDependencies)
-RUN bun install
+RUN bun install --ignore-scripts
 # Expone el puerto
 EXPOSE 7555/tcp
 # Activa el servidor
 CMD ["bun", "run", "index.ts"]
 
 # Configura el entorno para producción
-FROM base AS prod
+FROM --platform=linux/arm64 base AS prod
 # Copia los archivos de producción (sin devDependencies)
 COPY package.json bun.lockb ./
-RUN bun install --production
+RUN bun install --ignore-scripts --production
 # Copia el código fuente
 COPY . .
 # Expone el puerto

@@ -150,7 +150,7 @@
       if (hostname === "localhost") {
         wsURL = `ws://${hostname}:7555`;
       } else {
-        wsURL = `wss://${hostname}/ws`;
+        wsURL = `ws://${hostname}/ws`;
       }
       const socket = new WebSocket(wsURL);
 
