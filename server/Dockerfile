@@ -12,8 +12,9 @@ COPY package.json bun.lockb ./
 RUN bun install --ignore-scripts
 # Expone el puerto
 EXPOSE 7555/tcp
+RUN echo "Hola mundo"
 # Activa el servidor
-CMD ["bun", "run", "index.ts"]
+CMD ["bun", "--watch", "index.ts"]
 
 # Configura el entorno para producción
 FROM --platform=linux/arm64 base AS prod

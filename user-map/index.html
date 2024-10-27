@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Canvas Hexagons</title>
     <style>
+      /* Styles */
       body {
         background-color: lightgrey;
         overflow: hidden;
@@ -16,6 +17,7 @@
         margin: 0;
         height: 100%;
       }
+
       #canvas {
         border: 1px solid black;
       }
@@ -31,6 +33,7 @@
         height: 100%;
         background-color: rgba(0, 0, 0, 1);
         z-index: 1000;
+        transition: opacity 0.5s;
       }
 
       .loading {
@@ -40,6 +43,18 @@
         border-top: 16px solid #3498db;
         border-radius: 50%;
         animation: spin 2s linear infinite;
+      }
+
+      .button {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        padding: 10px;
+        background-color: #3498db;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
       }
 
       @keyframes spin {
@@ -69,169 +84,303 @@
       </div>
       <canvas id="canvas" class="panzoom" width="3982" height="5232"></canvas>
     </div>
+    <button class="button" onclick="handleCenterButtonClick()">Centrar</button>
     <script src="./panzoom.js"></script>
     <script src="https://rawgit.com/kawanet/msgpack-lite/master/dist/msgpack.min.js"></script>
     <script>
+      // Set up PanZoom for the canvas
       window.onload = function () {
-        PanZoom(".panzoom", {
+        this.PanZoomData = PanZoom(".panzoom", {
           increment: 0.1,
           minScale: 0.2,
           maxScale: 1,
-        });
-      };
-      const canvas = document.getElementById("canvas");
-      const ctx = canvas.getContext("2d");
+        })
+      }
 
-      const imageUrl = "bigMap.jpg";
+      const canvas = document.getElementById("canvas")
+      const ctx = canvas.getContext("2d")
+
+      const imageUrl = "bigMap.jpg"
       const w = 3982,
-        h = 5232;
-      const hexRadius = 36;
-      const borderWeight = 2;
+        h = 5232
+      const hexRadius = 36
+      const borderWeight = 2
+      const hexHeight = Math.sqrt(3) * (hexRadius + borderWeight)
+      const hexWidth = 2 * (hexRadius + borderWeight)
+      const vertDist = hexHeight
+      const horizDist = hexWidth * 0.75
 
-      const hexHeight = Math.sqrt(3) * (hexRadius + borderWeight);
-      const hexWidth = 2 * (hexRadius + borderWeight);
-      const vertDist = hexHeight;
-      const horizDist = hexWidth * 0.75;
+      const img = new Image()
+      img.src = imageUrl
 
-      const img = new Image();
-      img.src = imageUrl;
-
-      const hexagonsToPaint = new Map();
-
+      const hexagonsToPaint = new Map()
       const hexPoints = Array.from({ length: 6 }, (_, i) => {
-        const angle = (Math.PI / 3) * i;
-        return [Math.sin(angle), Math.cos(angle)];
-      });
+        const angle = (Math.PI / 3) * i
+        return [Math.sin(angle), Math.cos(angle)]
+      })
 
-      function drawHexagon(hex) {
-        const { row, col } = convertHexagonIdToHexagon(hex.id);
-
-        if (!hex.active) {
-          return;
-        }
-
-        const y = h - row * vertDist - (col % 2) * (hexHeight / 2) + 2.6;
-        const x = col * horizDist - 9.3;
-
-        ctx.beginPath();
-        hexPoints.forEach(([dy, dx], i) => {
-          const px = x + (hexRadius + borderWeight) * dx;
-          const py = y + (hexRadius + borderWeight) * dy;
-          if (i === 0) {
-            ctx.moveTo(px, py);
-          } else {
-            ctx.lineTo(px, py);
-          }
-        });
-        ctx.closePath();
-
-        ctx.fillStyle = "#FFF5DC";
-        ctx.globalAlpha = 1;
-        ctx.fill();
-        ctx.strokeStyle = "black";
-        ctx.lineWidth = borderWeight;
-        ctx.stroke();
-        ctx.globalAlpha = 1.0;
-      }
-
-      async function drawHexagons() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        await Promise.all(
-          Array.from(hexagonsToPaint.values()).map((hex) => drawHexagon(hex))
-        );
-
-        return Promise.resolve();
-      }
-
-      const hostname = window.location.hostname;
-      let wsURL = ''
-
-      if (hostname === "localhost") {
-        wsURL = `ws://${hostname}:7555`;
-      } else {
-        wsURL = `ws://${hostname}/ws`;
-      }
-      const socket = new WebSocket(wsURL);
-
-      socket.addEventListener("open", function (data) {
-        console.log("Conexión WebSocket abierta");
-      });
-
-      socket.addEventListener("message", async function (event) {
-        var blob = event.data;
-        const arrayBuffer = await blob.arrayBuffer();
-        const { payload: currentHexagons, action } = msgpack.decode(
-          new Uint8Array(arrayBuffer)
-        );
-        switch (action) {
-          case "initial-hexagons":
-            currentHexagons.forEach((hex) => {
-              const { row, col } = convertHexagonIdToHexagon(hex.id);
-              hexagonsToPaint.set(hex.id, {
-                ...hex,
-                active: hex.status === "hidden",
-              });
-            });
-
-            await drawHexagons();
-
-            setTimeout(async () => {
-              document.querySelector(".fullscreen-container").style.opacity = 0;
-              document.querySelector(".fullscreen-container").style.transition =
-                "opacity 0.5s";
-              await new Promise((resolve) => setTimeout(resolve, 500));
-              document.querySelector(".fullscreen-container").style.display =
-                "none";
-            }, 1000);
-
-            logMessage("Hexágonos iniciales pintados");
-            break;
-          case "hexagon-update":
-            const { id, status } = currentHexagons;
-            const isActive = status === "hidden";
-
-            if (isActive) {
-              hexagonsToPaint.set(id, { id, active: isActive });
-            } else {
-              hexagonsToPaint.delete(id);
-            }
-
-            logMessage(`Hexagono ${id} actualizado a ${status}`);
-            await drawHexagons();
-            break;
-          case "pong":
-            logMessage("Pong");
-            break;
-          case "clear":
-            hexagonsToPaint.clear();
-            await drawHexagons();
-            break;
-          default:
-            break;
-        }
-      });
-
-      socket.addEventListener("close", function () {
-        logMessage("Conexión WebSocket cerrada");
-      });
-
-      setInterval(() => {
-        socket.send(msgpack.encode({ action: "ping" }));
-      }, 5000);
-
-      function convertHexagonIdToHexagon(hexId) {
-        const [row, col] = hexId.split("-");
-        return { row: parseInt(row), col: parseInt(col) };
-      }
-
+      // Function to log messages
       function logMessage(message) {
         console.log(
           `%c[${new Date().toLocaleTimeString()}]: %c${message}`,
           "color: red",
           "color: white"
-        );
+        )
       }
+
+      // Promises for tracking loading conditions
+      const imageLoaded = new Promise((resolve) => {
+        img.onload = () => {
+          logMessage("Imagen cargada")
+          resolve()
+        }
+        img.onerror = () => {
+          logMessage("Error al cargar la imagen")
+          resolve() // Resolve even on error to avoid hanging
+        }
+      })
+
+      function drawHexagon(hex) {
+        const { row, col } = convertHexagonIdToHexagon(hex.id)
+        if (!hex.active) return
+
+        const y = h - row * vertDist - (col % 2) * (hexHeight / 2) + 2.6
+        const x = col * horizDist - 9.3
+
+        ctx.beginPath()
+        hexPoints.forEach(([dy, dx], i) => {
+          const px = x + (hexRadius + borderWeight) * dx
+          const py = y + (hexRadius + borderWeight) * dy
+          if (i === 0) {
+            ctx.moveTo(px, py)
+          } else {
+            ctx.lineTo(px, py)
+          }
+        })
+        ctx.closePath()
+
+        ctx.fillStyle = "#FFF5DC"
+        ctx.globalAlpha = 1
+        ctx.fill()
+        ctx.strokeStyle = "black"
+        ctx.lineWidth = borderWeight
+        ctx.stroke()
+        ctx.globalAlpha = 1.0
+
+        // Store the hexagon path for click detection
+        hex.path = ctx.currentPath
+        hex.center = { x, y } // Store the center position for click detection
+      }
+
+      async function drawHexagons() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        await Promise.all(
+          Array.from(hexagonsToPaint.values()).map((hex) => drawHexagon(hex))
+        )
+      }
+
+      // Function to set up the WebSocket connection
+      function setupWebSocket() {
+        const hostname = window.location.hostname
+        const wsURL =
+          hostname === "localhost"
+            ? `ws://${hostname}:7555`
+            : `ws://${hostname}/ws`
+        const socket = new WebSocket(wsURL)
+
+        socket.addEventListener("open", () => {
+          logMessage("Conexión WebSocket abierta")
+        })
+
+        socket.addEventListener("message", async function (event) {
+          const blob = event.data
+          const arrayBuffer = await blob.arrayBuffer()
+          const { payload: currentHexagons, action } = msgpack.decode(
+            new Uint8Array(arrayBuffer)
+          )
+
+          switch (action) {
+            case "initial-hexagons":
+              currentHexagons.forEach((hex) => {
+                hexagonsToPaint.set(hex.id, {
+                  ...hex,
+                  active: hex.status === "hidden",
+                })
+              })
+              logMessage("Hexágonos iniciales recibidos")
+              await drawHexagons() // Dibuja hexágonos iniciales después de recibir
+              hideLoadingScreen() // Oculta la pantalla de carga después de dibujar
+              break
+            case "hexagon-update":
+              const { id, status } = currentHexagons
+              const isActive = status === "hidden"
+              console.log(`Hexágono ${id} actualizado a ${status}`)
+              if (isActive) {
+                hexagonsToPaint.set(id, { id, active: isActive })
+              } else {
+                hexagonsToPaint.delete(id)
+              }
+              await drawHexagons() // Dibuja hexágonos después de cada actualización
+              break
+            case "pong":
+              break
+            case "clear":
+              hexagonsToPaint.clear()
+              await drawHexagons() // Borra y redibuja los hexágonos
+              break
+            default:
+              break
+          }
+        })
+
+        socket.addEventListener("close", function () {
+          logMessage("Conexión WebSocket cerrada")
+        })
+      }
+
+      // Initialize loading and drawing sequence
+      async function initialize() {
+        await imageLoaded // Espera a que la imagen esté completamente cargada
+        logMessage("Mapa dibujado: ahora configurando el WebSocket")
+        setupWebSocket() // Establece la conexión WebSocket
+      }
+
+      function hideLoadingScreen() {
+        document.querySelector(".fullscreen-container").style.opacity = 0
+        setTimeout(() => {
+          document.querySelector(".fullscreen-container").style.display = "none"
+        }, 500)
+      }
+
+      initialize().then(() => {
+        logMessage("Inicialización completa, esperando hexágonos...")
+      })
+
+      // Utility Functions
+      function convertHexagonIdToHexagon(hexId) {
+        const [row, col] = hexId.split("-")
+        return { row: parseInt(row), col: parseInt(col) }
+      }
+
+      function findClickedHexagon(x, y) {
+        for (let hex of hexagonsToPaint.values()) {
+          const { row, col } = convertHexagonIdToHexagon(hex.id)
+
+          // Calcular la posición central de cada hexágono con base en `row` y `col`
+          const hexX = col * horizDist - 9.3
+          const hexY = h - row * vertDist - (col % 2) * (hexHeight / 2) + 2.6
+
+          // Comprobar si el clic está dentro de los límites del hexágono
+          if (isPointInHexagon(x, y, hexX, hexY)) {
+            return { id: hex.id, row, col }
+          }
+        }
+        return null
+      }
+
+      function isPointInHexagon(px, py, hexX, hexY) {
+        const hexRadius = 30 // Cambia esto por el radio real de tu hexágono
+        const hexPoints = [
+          [
+            Math.sin((0 * Math.PI) / 180) * hexRadius,
+            Math.cos((0 * Math.PI) / 180) * hexRadius,
+          ],
+          [
+            Math.sin((60 * Math.PI) / 180) * hexRadius,
+            Math.cos((60 * Math.PI) / 180) * hexRadius,
+          ],
+          [
+            Math.sin((120 * Math.PI) / 180) * hexRadius,
+            Math.cos((120 * Math.PI) / 180) * hexRadius,
+          ],
+          [
+            Math.sin((180 * Math.PI) / 180) * hexRadius,
+            Math.cos((180 * Math.PI) / 180) * hexRadius,
+          ],
+          [
+            Math.sin((240 * Math.PI) / 180) * hexRadius,
+            Math.cos((240 * Math.PI) / 180) * hexRadius,
+          ],
+          [
+            Math.sin((300 * Math.PI) / 180) * hexRadius,
+            Math.cos((300 * Math.PI) / 180) * hexRadius,
+          ],
+        ]
+
+        // Verificar si el punto está dentro del hexágono usando el método de ray-casting
+        let inside = false
+        for (
+          let i = 0, j = hexPoints.length - 1;
+          i < hexPoints.length;
+          j = i++
+        ) {
+          const xi = hexX + hexPoints[i][0]
+          const yi = hexY + hexPoints[i][1]
+          const xj = hexX + hexPoints[j][0]
+          const yj = hexY + hexPoints[j][1]
+
+          const intersect =
+            yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi
+          if (intersect) inside = !inside
+        }
+        return inside
+      }
+
+      canvas.addEventListener("click", function (e) {
+        // Obtener la escala y la traslación actuales aplicadas por PanZoom
+        const { scale, transX, transY } = PanZoomData.getTransformMatrix()
+
+        // Calcular la posición del clic en el canvas relativo a la imagen original
+        console.log({ scale, transX, transY })
+      })
+
+      function handleCenterButtonClick() {
+        // Centra el canvas en la imagen original
+        console.log(PanZoomData)
+        PanZoomData.center()
+      }
+
+      canvas.addEventListener("click", function (e) {
+        const rect = canvas.getBoundingClientRect()
+        const mouseX = e.clientX - rect.left // Coordenada X del mouse en relación al canvas
+        const mouseY = e.clientY - rect.top // Coordenada Y del mouse en relación al canvas
+
+        // Usamos solo el valor de scale para ajustar el zoom actual
+        const { scale } = PanZoomData.getTransformMatrix()
+
+        // Ajustamos la posición del clic en relación con el zoom
+        const adjustedX = mouseX / scale
+        const adjustedY = mouseY / scale
+
+        // Buscar qué hexágono contiene este clic ajustado
+        hexagonsToPaint.forEach((hex) => {
+          const { row, col } = convertHexagonIdToHexagon(hex.id)
+
+          // Ajustamos el cálculo del hexágono usando los valores específicos para x e y
+          const x = col * horizDist - 9.3
+          const y = h - row * vertDist - (col % 2) * (hexHeight / 2) + 2.6
+
+          // Verificar si el punto ajustado está dentro del hexágono
+          if (isPointInHexagon(adjustedX, adjustedY, x, y)) {
+            console.log(`Hexágono presionado: ${hex.id}`)
+            // Dibuja el contorno del hexágono presionado para depurar
+            ctx.beginPath()
+            ctx.moveTo(x + hexRadius, y) // Inicio en el primer vértice
+            hexPoints.forEach(([dy, dx]) => {
+              const px = x + hexRadius * dx
+              const py = y + hexRadius * dy
+              ctx.lineTo(px, py)
+            })
+            ctx.closePath()
+            ctx.fillStyle = "rgba(255, 0, 0, 0.3)" // Fondo transparente
+            ctx.fill()
+            ctx.strokeStyle = "red" // Contorno rojo
+            ctx.lineWidth = 2
+            ctx.stroke()
+          }
+        })
+      })
     </script>
   </body>
 </html>

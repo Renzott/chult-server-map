@@ -19,7 +19,9 @@ services:
     restart: always
 
   server:
-    build: ./server
+    build:
+      context: ./server
+      target: ${TARGET_ENV}
     container_name: server
     environment:
       MASTER_KEY: ${MASTER_KEY}
