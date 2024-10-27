@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Canvas Hexagons</title>
     <style>
+      /* Styles */
       body {
         background-color: lightgrey;
         overflow: hidden;
@@ -16,6 +17,7 @@
         margin: 0;
         height: 100%;
       }
+
       #canvas {
         border: 1px solid black;
       }
@@ -31,6 +33,7 @@
         height: 100%;
         background-color: rgba(0, 0, 0, 1);
         z-index: 1000;
+        transition: opacity 0.5s;
       }
 
       .loading {
@@ -42,13 +45,22 @@
         animation: spin 2s linear infinite;
       }
 
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
+      .button {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        padding: 10px;
+        background-color: #3498db;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        opacity: 0.2;
+        transition: opacity 0.3s;
+      }
+
+      .button:hover {
+        opacity: 1;
       }
 
       .wrap {
@@ -60,7 +72,22 @@
         background-color: black;
         overflow: hidden;
       }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
     </style>
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
+    <link rel="icon" href="./favicon.svg" sizes="any" type="image/svg+xml" />
   </head>
   <body>
     <div class="wrap">
@@ -69,168 +96,238 @@
       </div>
       <canvas id="canvas" class="panzoom" width="3982" height="5232"></canvas>
     </div>
+    <button class="button" onclick="handleCenterButtonClick()">
+      Ir al Centro
+    </button>
     <script src="./panzoom.js"></script>
     <script src="https://rawgit.com/kawanet/msgpack-lite/master/dist/msgpack.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script>
+      // Set up PanZoom for the canvas
       window.onload = function () {
-        PanZoom(".panzoom", {
+        this.PanZoomData = PanZoom(".panzoom", {
           increment: 0.1,
           minScale: 0.2,
           maxScale: 1,
-        });
-      };
-      const canvas = document.getElementById("canvas");
-      const ctx = canvas.getContext("2d");
+        })
+      }
 
-      const imageUrl = "bigMap.jpg";
+      const canvas = document.getElementById("canvas")
+      const ctx = canvas.getContext("2d")
+
+      const imageUrl = "bigMap.jpg"
       const w = 3982,
-        h = 5232;
-      const hexRadius = 36;
-      const borderWeight = 2;
+        h = 5232
+      const hexRadius = 36
+      const borderWeight = 2
+      const hexHeight = Math.sqrt(3) * (hexRadius + borderWeight)
+      const hexWidth = 2 * (hexRadius + borderWeight)
+      const vertDist = hexHeight
+      const horizDist = hexWidth * 0.75
 
-      const hexHeight = Math.sqrt(3) * (hexRadius + borderWeight);
-      const hexWidth = 2 * (hexRadius + borderWeight);
-      const vertDist = hexHeight;
-      const horizDist = hexWidth * 0.75;
+      const img = new Image()
+      img.src = imageUrl
 
-      const img = new Image();
-      img.src = imageUrl;
-
-      const hexagonsToPaint = new Map();
-
+      const hexagonsToPaint = new Map()
       const hexPoints = Array.from({ length: 6 }, (_, i) => {
-        const angle = (Math.PI / 3) * i;
-        return [Math.sin(angle), Math.cos(angle)];
-      });
+        const angle = (Math.PI / 3) * i
+        return [Math.sin(angle), Math.cos(angle)]
+      })
 
-      function drawHexagon(hex) {
-        const { row, col } = convertHexagonIdToHexagon(hex.id);
+      function logMessage(message, type = "info", showToast = false) {
+        let color = "color: white"
+        let toastColor = "#333"
 
-        if (!hex.active) {
-          return;
+        switch (type) {
+          case "info":
+            color = "color: green"
+            toastColor = "#2ecc71"
+            break
+          case "warning":
+            color = "color: orange"
+            toastColor = "#f39c12"
+            break
+          case "error":
+            color = "color: red"
+            toastColor = "#e74c3c"
+            break
         }
 
-        const y = h - row * vertDist - (col % 2) * (hexHeight / 2) + 2.6;
-        const x = col * horizDist - 9.3;
+        //console.log(`%c[${new Date().toLocaleTimeString()}] ${message}`, color);
+        console.log(
+          `%c[${new Date().toLocaleTimeString()}]: %c${message}`,
+          color,
+          "color: white"
+        )
 
-        ctx.beginPath();
+        if (showToast) {
+          Toastify({
+            text: message,
+            duration: 3000,
+            close: true,
+            gravity: "top",
+            position: "right",
+            style: {
+              background: toastColor,
+            },
+          }).showToast()
+        }
+      }
+
+      const imageLoaded = new Promise((resolve) => {
+        img.onload = () => {
+          resolve()
+        }
+        img.onerror = () => {
+          logMessage("Error al cargar la imagen", "error", true)
+          resolve()
+        }
+      })
+
+      function drawHexagon(hex) {
+        const { row, col } = convertHexagonIdToHexagon(hex.id)
+        if (!hex.active) return
+
+        const y = h - row * vertDist - (col % 2) * (hexHeight / 2) + 2.6
+        const x = col * horizDist - 9.3
+
+        ctx.beginPath()
         hexPoints.forEach(([dy, dx], i) => {
-          const px = x + (hexRadius + borderWeight) * dx;
-          const py = y + (hexRadius + borderWeight) * dy;
+          const px = x + (hexRadius + borderWeight) * dx
+          const py = y + (hexRadius + borderWeight) * dy
           if (i === 0) {
-            ctx.moveTo(px, py);
+            ctx.moveTo(px, py)
           } else {
-            ctx.lineTo(px, py);
+            ctx.lineTo(px, py)
           }
-        });
-        ctx.closePath();
+        })
+        ctx.closePath()
 
-        ctx.fillStyle = "#FFF5DC";
-        ctx.globalAlpha = 1;
-        ctx.fill();
-        ctx.strokeStyle = "black";
-        ctx.lineWidth = borderWeight;
-        ctx.stroke();
-        ctx.globalAlpha = 1.0;
+        ctx.fillStyle = "#FFF5DC"
+        ctx.globalAlpha = 1
+        ctx.fill()
+        ctx.strokeStyle = "black"
+        ctx.lineWidth = borderWeight
+        ctx.stroke()
+        ctx.globalAlpha = 1.0
       }
 
       async function drawHexagons() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
         await Promise.all(
           Array.from(hexagonsToPaint.values()).map((hex) => drawHexagon(hex))
-        );
-
-        return Promise.resolve();
+        )
       }
 
-      const hostname = window.location.hostname;
-      let wsURL = ''
+      function setupWebSocket() {
+        const hostname = window.location.hostname
+        const wsURL =
+          hostname === "localhost"
+            ? `ws://${hostname}:7555`
+            : `ws://${hostname}/ws`
+        const socket = new WebSocket(wsURL)
 
-      if (hostname === "localhost") {
-        wsURL = `ws://${hostname}:7555`;
-      } else {
-        wsURL = `ws://${hostname}/ws`;
+        let pingInterval
+
+        socket.addEventListener("open", () => {
+          logMessage("Conexión WebSocket abierta", "info", true)
+          pingInterval = setInterval(() => {
+            socket.send(msgpack.encode({ action: "ping" }))
+          }, 5000)
+        })
+
+        socket.addEventListener("message", async function (event) {
+          const blob = event.data
+          const arrayBuffer = await blob.arrayBuffer()
+          const { payload: currentHexagons, action } = msgpack.decode(
+            new Uint8Array(arrayBuffer)
+          )
+
+          switch (action) {
+            case "initial-hexagons":
+              currentHexagons.forEach((hex) => {
+                hexagonsToPaint.set(hex.id, {
+                  ...hex,
+                  active: hex.status === "hidden",
+                })
+              })
+              logMessage("Hexágonos iniciales recibidos", "info", false)
+              await drawHexagons()
+              hideLoadingScreen()
+              break
+            case "hexagon-update":
+              const { id, status } = currentHexagons
+              const isActive = status === "hidden"
+
+              if (isActive) {
+                hexagonsToPaint.set(id, { id, active: isActive })
+              } else {
+                hexagonsToPaint.delete(id)
+              }
+
+              logMessage(`Hexágono ${id} actualizado`, "info", true)
+              await drawHexagons()
+              break
+            case "pong":
+              logMessage("Ping recibido del servidor", "info")
+              break
+            case "clear":
+              hexagonsToPaint.clear()
+              await drawHexagons()
+              logMessage("Hexágonos limpiados", "warning", true)
+              break
+            default:
+              logMessage("Acción desconocida recibida", "warning", true)
+              break
+          }
+        })
+
+        socket.addEventListener("close", function () {
+          clearInterval(pingInterval)
+          logMessage(
+            "Conexión WebSocket cerrada. Intentando reconexión...",
+            "error",
+            true
+          )
+          setTimeout(setupWebSocket, 5000)
+        })
+
+        return socket
       }
-      const socket = new WebSocket(wsURL);
 
-      socket.addEventListener("open", function (data) {
-        console.log("Conexión WebSocket abierta");
-      });
+      async function initialize() {
+        await imageLoaded
+        logMessage(
+          "Mapa dibujado: ahora configurando el WebSocket",
+          "info",
+          false
+        )
+        setupWebSocket()
+      }
 
-      socket.addEventListener("message", async function (event) {
-        var blob = event.data;
-        const arrayBuffer = await blob.arrayBuffer();
-        const { payload: currentHexagons, action } = msgpack.decode(
-          new Uint8Array(arrayBuffer)
-        );
-        switch (action) {
-          case "initial-hexagons":
-            currentHexagons.forEach((hex) => {
-              const { row, col } = convertHexagonIdToHexagon(hex.id);
-              hexagonsToPaint.set(hex.id, {
-                ...hex,
-                active: hex.status === "hidden",
-              });
-            });
+      function hideLoadingScreen() {
+        document.querySelector(".fullscreen-container").style.opacity = 0
+        setTimeout(() => {
+          document.querySelector(".fullscreen-container").style.display = "none"
+        }, 500)
+      }
 
-            await drawHexagons();
+      initialize().then(() => {
+        logMessage(
+          "Inicialización completa, esperando hexágonos...",
+          "info",
+          false
+        )
+      })
 
-            setTimeout(async () => {
-              document.querySelector(".fullscreen-container").style.opacity = 0;
-              document.querySelector(".fullscreen-container").style.transition =
-                "opacity 0.5s";
-              await new Promise((resolve) => setTimeout(resolve, 500));
-              document.querySelector(".fullscreen-container").style.display =
-                "none";
-            }, 1000);
-
-            logMessage("Hexágonos iniciales pintados");
-            break;
-          case "hexagon-update":
-            const { id, status } = currentHexagons;
-            const isActive = status === "hidden";
-
-            if (isActive) {
-              hexagonsToPaint.set(id, { id, active: isActive });
-            } else {
-              hexagonsToPaint.delete(id);
-            }
-
-            logMessage(`Hexagono ${id} actualizado a ${status}`);
-            await drawHexagons();
-            break;
-          case "pong":
-            logMessage("Pong");
-            break;
-          case "clear":
-            hexagonsToPaint.clear();
-            await drawHexagons();
-            break;
-          default:
-            break;
-        }
-      });
-
-      socket.addEventListener("close", function () {
-        logMessage("Conexión WebSocket cerrada");
-      });
-
-      setInterval(() => {
-        socket.send(msgpack.encode({ action: "ping" }));
-      }, 5000);
+      function handleCenterButtonClick() {
+        PanZoomData.center()
+      }
 
       function convertHexagonIdToHexagon(hexId) {
-        const [row, col] = hexId.split("-");
-        return { row: parseInt(row), col: parseInt(col) };
-      }
-
-      function logMessage(message) {
-        console.log(
-          `%c[${new Date().toLocaleTimeString()}]: %c${message}`,
-          "color: red",
-          "color: white"
-        );
+        const [row, col] = hexId.split("-")
+        return { row: parseInt(row), col: parseInt(col) }
       }
     </script>
   </body>

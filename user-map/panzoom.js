@@ -1,1 +1,145 @@
-function PanZoom(t,e){let n=[],i=(e=e||{}).minScale?e.minScale:.1,s=e.maxScale?e.maxScale:5,a=e.increment?e.increment:.05,l=!!e.liner&&e.liner;return document.querySelectorAll(t).forEach(function(t){n.push(new AttachPanZoom(t,i,s,a,l))}),1==n.length?n[0]:n}function AttachPanZoom(t,e,n,i,s){this.increment=i,this.minScale=e,this.maxScale=n,this.liner=s,this.panning=!1,this.oldX=this.oldY=0;let a=this;t.style.transform="matrix(1, 0, 0, 1, 0, 0)",this.getTransformMatrix=function(){let e=t.style.transform,n=e.indexOf("(")+1,i=e.indexOf(")"),s=e.slice(n,i).split(",");return{scale:+s[0],transX:+s[4],transY:+s[5]}},this.setTransformMatrix=function(e){t.style.transform="matrix("+e.scale+", 0, 0, "+e.scale+", "+e.transX+", "+e.transY+")"},this.applyTranslate=function(t,e){let n=this.getTransformMatrix();n.transX+=t,n.transY+=e,this.setTransformMatrix(n)},this.applyScale=function(e,n,i){let s=this.getTransformMatrix(),a=n-(t.width?t.width:t.offsetWidth)/2,l=i-(t.height?t.height:t.offsetHeight)/2;e=this.liner?e:e*s.scale,s.scale+=e;let r=s.scale<=this.minScale||s.scale>=this.maxScale;s.scale<this.minScale&&(s.scale=this.minScale),s.scale>this.maxScale&&(s.scale=this.maxScale),r||(this.applyTranslate(a,l),this.setTransformMatrix(s),this.applyTranslate(-a*e,-l*e))},t.addEventListener("mousedown",function(t){t.preventDefault(),this.panning=!0,this.oldX=t.clientX,this.oldY=t.clientY}),t.addEventListener("mouseup",function(t){this.panning=!1}),t.addEventListener("mouseleave",function(t){this.panning=!1}),t.addEventListener("mousemove",function(t){if(this.panning){let e=t.clientX-this.oldX,n=t.clientY-this.oldY;a.applyTranslate(e,n),this.oldX=t.clientX,this.oldY=t.clientY}}),this.getScrollDirection=function(t){(t.wheelDelta?t.wheelDelta:-1*t.deltaY)<0?a.applyScale(-a.increment,t.offsetX,t.offsetY):a.applyScale(a.increment,t.offsetX,t.offsetY)},t.addEventListener("DOMMouseScroll",this.getScrollDirection,!1),t.addEventListener("mousewheel",this.getScrollDirection,!1)}
+// Inital method to call to apply PanZoom to elements given a selector
+function PanZoom(selector, opts) {
+  let panZoomEles = []
+  opts = opts || {}
+  let minScale = opts.minScale ? opts.minScale : 0.1
+  let maxScale = opts.maxScale ? opts.maxScale : 5
+  let increment = opts.increment ? opts.increment : 0.05
+  let liner = opts.liner ? opts.liner : false
+  document.querySelectorAll(selector).forEach(function (ele) {
+    panZoomEles.push(
+      new AttachPanZoom(ele, minScale, maxScale, increment, liner)
+    )
+  })
+  if (panZoomEles.length === 1) return panZoomEles[0]
+  return panZoomEles
+}
+
+// Appy PanZoom functionality to a given element, allow user defined zoom min and inc per scroll
+function AttachPanZoom(ele, minScale, maxScale, increment, liner) {
+  this.increment = increment
+  this.minScale = minScale
+  this.maxScale = maxScale
+  this.liner = liner
+  this.panning = false
+  this.oldX = this.oldY = 0
+  this.velX = 0 // Velocity for friction
+  this.velY = 0 // Velocity for friction
+  this.friction = 0.94 // Friction factor
+  let self = this
+  ele.style.transform = "matrix(1, 0, 0, 1, 0, 0)"
+
+  // Gets the current Scale, along with transX and transY
+  this.getTransformMatrix = function () {
+    let trans = ele.style.transform
+    let start = trans.indexOf("(") + 1
+    let end = trans.indexOf(")")
+    let matrix = trans.slice(start, end).split(",")
+    return {
+      scale: +matrix[0],
+      transX: +matrix[4],
+      transY: +matrix[5],
+    }
+  }
+
+  // Given the scale, translateX and translateY apply to CSSS transform
+  this.setTransformMatrix = function (o) {
+    ele.style.transform = `matrix(${o.scale}, 0, 0, ${o.scale}, ${o.transX}, ${o.transY})`
+  }
+
+  this.applyTranslate = function (dx, dy) {
+    let newTrans = this.getTransformMatrix()
+    newTrans.transX += dx
+    newTrans.transY += dy
+    this.setTransformMatrix(newTrans)
+  }
+
+  this.smoothMove = function () {
+    if (!self.panning) {
+      // Apply friction
+      self.velX *= self.friction
+      self.velY *= self.friction
+
+      // Stop the movement if the velocity is small enough
+      if (Math.abs(self.velX) > 0.1 || Math.abs(self.velY) > 0.1) {
+        self.applyTranslate(self.velX, self.velY)
+        requestAnimationFrame(self.smoothMove)
+      }
+    }
+  }
+
+  // Applying Deltas to Scale and Translate transformations
+  this.applyScale = function (dscale, x, y) {
+    let newTrans = this.getTransformMatrix()
+    let width = ele.width ? ele.width : ele.offsetWidth
+    let height = ele.height ? ele.height : ele.offsetHeight
+    let tranX = x - width / 2
+    let tranY = y - height / 2
+    dscale = this.liner ? dscale : dscale * newTrans.scale // scale either liner or non-liner
+    newTrans.scale += dscale
+    let maxOrMinScale =
+      newTrans.scale <= this.minScale || newTrans.scale >= this.maxScale
+    if (newTrans.scale < this.minScale) newTrans.scale = this.minScale
+    if (newTrans.scale > this.maxScale) newTrans.scale = this.maxScale
+    if (!maxOrMinScale) {
+      this.applyTranslate(tranX, tranY)
+      this.setTransformMatrix(newTrans)
+      this.applyTranslate(-tranX * dscale, -tranY * dscale)
+    }
+  }
+
+  this.center = function () {
+    let width = ele.width ? ele.width : ele.offsetWidth
+    let height = ele.height ? ele.height : ele.offsetHeight
+
+    let newTrans = this.getTransformMatrix()
+
+    let x = (width - width) / 2
+    let y = (height - height) / 2
+    newTrans.transX = -x
+    newTrans.transY = -y
+
+    this.setTransformMatrix(newTrans)
+  }
+
+  // Capture when the mouse is down on the element or not
+  ele.addEventListener("mousedown", function (e) {
+    e.preventDefault()
+    self.panning = true
+    self.oldX = e.clientX
+    self.oldY = e.clientY
+    self.velX = 0 // Reset velocity
+    self.velY = 0
+  })
+
+  ele.addEventListener("mouseup", function (e) {
+    self.panning = false
+    requestAnimationFrame(self.smoothMove) // Start smooth movement when mouse is released
+  })
+
+  ele.addEventListener("mouseleave", function (e) {
+    self.panning = false
+    requestAnimationFrame(self.smoothMove) // Start smooth movement if the mouse leaves the canvas
+  })
+
+  ele.addEventListener("mousemove", function (e) {
+    if (self.panning) {
+      let deltaX = e.clientX - self.oldX
+      let deltaY = e.clientY - self.oldY
+      self.applyTranslate(deltaX, deltaY)
+      self.oldX = e.clientX
+      self.oldY = e.clientY
+      self.velX = deltaX // Track velocity for smooth movement
+      self.velY = deltaY
+    }
+  })
+
+  this.getScrollDirection = function (e) {
+    let delta = Math.max(-1, Math.min(1, e.wheelDelta || -e.detail))
+    if (delta < 0) self.applyScale(-self.increment, e.offsetX, e.offsetY)
+    else self.applyScale(self.increment, e.offsetX, e.offsetY)
+  }
+
+  ele.addEventListener("DOMMouseScroll", this.getScrollDirection, false)
+  ele.addEventListener("mousewheel", this.getScrollDirection, false)
+}
