@@ -6,6 +6,9 @@ async function initialize() {
   const uuid = localStorage.getItem("uuid") || uuid4()
   localStorage.setItem("uuid", uuid)
 
+  const playerId = document.getElementById("player-id")
+  playerId.innerText = `ID: ${uuid.slice(0, 4)}`
+
   const panZoomInstance = PanZoom(".panzoom, .panzoom2", {
     increment: 0.1,
     minScale: 0.2,
@@ -98,29 +101,6 @@ async function initialize() {
     requestAnimationFrame(updateCursorPositions)
   }
 
-  this.changeCursorClickStatus = () => {
-    const cursorStatus = document.getElementById("cursor-status")
-    const status = cursorStatus.getAttribute("data-status")
-
-    let textStatus = {
-      master: "Cambiar a Ficha Master",
-      player: "Cambiar a Ficha Jugador",
-    }
-
-    const newStatus = status === "master" ? "player" : "master"
-
-    cursorStatus.classList.remove(status + "-button")
-    cursorStatus.classList.add(newStatus + "-button")
-
-    cursorStatus.setAttribute("data-status", newStatus)
-    cursorStatus.innerText = textStatus[newStatus]
-
-    document.body.style.cursor =
-      newStatus === "master" ? "crosshair" : "default"
-
-    cursorClickStatus = status
-  }
-
   this.handleCenterButtonClick = () => {
     panZoomInstance.center()
   }
@@ -133,13 +113,12 @@ async function initialize() {
   // ---------------------- WebSocket ----------------------
 
   let hasSocketClosed = false
-  let handleUpdateHexagon = null
 
   function setupWebSocket() {
     const hostname = window.location.hostname
     const wsURL =
       hostname === "localhost" ? `ws://${hostname}:7555` : `ws://${hostname}/ws`
-    const socket = new WebSocket(wsURL + `?key=master-key`)
+    const socket = new WebSocket(wsURL)
 
     let pingInterval
     let cursorInterval
@@ -161,22 +140,35 @@ async function initialize() {
 
       switch (action) {
         case "initial-hexagons":
+          let lastHexagonId = null
           currentData.forEach((hexagon) => {
             let currentStatus =
               hexagon.status !== undefined ? hexagon.status : "hidden"
 
-            if (!lastHexagonPlayer && hexagon.status === "player") {
-              lastHexagonPlayer = hexIdToCoords(hexagon.id)
+            if (hexagon.status === "player") {
+              lastHexagonId = hexagon.id
             }
             hexagonsMap.set(hexagon.id, { status: currentStatus })
           })
           drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap)
+          if (lastHexagonId) {
+            lastHexagonPlayer = hexIdToCoords(lastHexagonId)
+          }
           await hideLoadingScreen()
           break
         case "hexagon-update":
+          if (lastHexagonPlayer) {
+            const lastHexagonId = `${lastHexagonPlayer.row}-${lastHexagonPlayer.col}`
+            hexagonsMap.set(lastHexagonId, { status: "visible" })
+          }
+
           const { id, status } = currentData
           hexagonsMap.set(id, { status })
+          logMessage(`Hexágono ${id} actualizado`, "info", true)
           drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap)
+          if (status === "player") {
+            lastHexagonPlayer = hexIdToCoords(id)
+          }
           break
         case "pong":
           logMessage("Ping recibido del servidor", "info")
@@ -200,7 +192,7 @@ async function initialize() {
     })
 
     cursorInterval = setInterval(() => {
-      if (hasMouseInWindow) {
+      if (hasMouseInWindow && socket.readyState === 1) {
         socket.send(
           encodeData({
             action: "cursor-move",
@@ -210,15 +202,6 @@ async function initialize() {
       }
     }, 60)
 
-    handleUpdateHexagon = (hexId, status) => {
-      socket.send(
-        encodeData({
-          action: "update-hexagon",
-          payload: { id: hexId, status },
-        })
-      )
-    }
-
     socket.addEventListener("close", () => {
       clearInterval(pingInterval)
       clearInterval(cursorInterval)
@@ -226,7 +209,6 @@ async function initialize() {
         logMessage("Conexión WebSocket cerrada", "warning", true)
       }
       hasSocketClosed = true
-      handleUpdateHexagon = null
       setTimeout(() => {
         logMessage("Reconectando...", "warning", true)
         setupWebSocket()
@@ -234,74 +216,8 @@ async function initialize() {
     })
   }
 
-  cursorCanvas.addEventListener("mouseup", (e) => {
-    if (e.button !== 0) return
-
-    const { getLastTransform, getTransformMatrix } = panZoomInstance
-
-    const lastTransform = getLastTransform()
-    const newTransform = getTransformMatrix()
-
-    const moved =
-      Math.abs(lastTransform.transX - newTransform.transX) > 5 ||
-      Math.abs(lastTransform.transY - newTransform.transY) > 5
-
-    if (!moved) {
-      handleClick(e)
-    }
-  })
-
-  function handleClick(e) {
-    const x = e.offsetX
-    const y = e.offsetY
-    let closestHex = null
-    let minDistance = Infinity
-
-    for (let col = 0; col * horizDist < mapWidth; col++) {
-      for (let row = 0; row * vertDist < mapHeight; row++) {
-        const hexX = col * horizDist
-        const hexY = mapHeight - row * vertDist - (col % 2) * (hexHeight / 2)
-
-        if (isPointInHexagon(x, y, hexX, hexY)) {
-          const distance = Math.hypot(hexX - x, hexY - y)
-          if (distance < minDistance) {
-            minDistance = distance
-            closestHex = { row, col }
-          }
-        }
-      }
-    }
-
-    if (closestHex) {
-      const hexId = `${closestHex.row}-${closestHex.col}`
-      if (cursorClickStatus === "player") {
-        if (lastHexagonPlayer) {
-          const lastHexagonId = `${lastHexagonPlayer.row}-${lastHexagonPlayer.col}`
-          hexagonsMap.set(lastHexagonId, { status: "visible" })
-        }
-        hexagonsMap.set(hexId, { status: "player" })
-      } else {
-        if (!hexagonsMap.has(hexId)) {
-          hexagonsMap.set(hexId, { status: "hidden" })
-        } else {
-          const currentStatus = hexagonsMap.get(hexId).status
-          hexagonsMap.set(hexId, {
-            status: currentStatus === "hidden" ? "visible" : "hidden",
-          })
-        }
-      }
-
-      handleUpdateHexagon(hexId, hexagonsMap.get(hexId).status)
-      drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap)
-      if (cursorClickStatus === "player") {
-        lastHexagonPlayer = closestHex
-      }
-    }
-  }
-
   cursorCanvas.addEventListener("mouseleave", () => {
     hasMouseInWindow = false
-    cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height)
   })
 
   cursorCanvas.addEventListener("mouseenter", () => {
@@ -310,7 +226,6 @@ async function initialize() {
 
   document.addEventListener("mouseleave", () => {
     hasMouseInWindow = false
-    cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height)
   })
 
   document.addEventListener("mouseenter", () => {
@@ -396,7 +311,7 @@ const drawAllHexagons = (ctx, canvas, backgroundImage, hexagonsMap) => {
         continue
       }
 
-      if (lastHexagonPlayer && cursorClickStatus === "player") {
+      if (lastHexagonPlayer) {
         if (lastHexagonPlayer.row === row && lastHexagonPlayer.col === col)
           continue
       }
@@ -429,7 +344,7 @@ const drawHexagon = (ctx, x, y, isHidden = false, status) => {
   ctx.closePath()
 
   if (status === "player") {
-    ctx.fillStyle = "blue"
+    ctx.fillStyle = "#fb9119"
   } else {
     ctx.fillStyle = isHidden ? "transparent" : "#FFF5DC"
   }

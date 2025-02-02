@@ -1,10 +1,20 @@
 async function initialize() {
+  let params = new URL(document.location).searchParams
+  let key = params.get("key")
+
+  if (!key) {
+    window.location.href = "https://www.google.com"
+  }
+
   const { uuid4 } = await import(
     "https://cdn.jsdelivr.net/gh/tracker1/node-uuid4/browser.mjs"
   )
 
   const uuid = localStorage.getItem("uuid") || uuid4()
   localStorage.setItem("uuid", uuid)
+
+  const playerId = document.getElementById("player-id")
+  playerId.innerText = `ID: ${uuid.slice(0, 4)}`
 
   const panZoomInstance = PanZoom(".panzoom, .panzoom2", {
     increment: 0.1,
@@ -137,9 +147,11 @@ async function initialize() {
 
   function setupWebSocket() {
     const hostname = window.location.hostname
-    const wsURL =
+    let wsURL =
       hostname === "localhost" ? `ws://${hostname}:7555` : `ws://${hostname}/ws`
-    const socket = new WebSocket(wsURL + `?key=master-key`)
+
+    if (key) wsURL += "?key=" + key
+    const socket = new WebSocket(wsURL)
 
     let pingInterval
     let cursorInterval
@@ -174,9 +186,10 @@ async function initialize() {
           await hideLoadingScreen()
           break
         case "hexagon-update":
-          const { id, status } = currentData
-          hexagonsMap.set(id, { status })
-          drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap)
+          // TODO: duplicate event and clear player hex, fix another day
+          // const { id, status } = currentData
+          // hexagonsMap.set(id, { status })
+          // drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap)
           break
         case "pong":
           logMessage("Ping recibido del servidor", "info")
@@ -193,6 +206,9 @@ async function initialize() {
             cursorsArray.push({ x, y, targetX: x, targetY: y, uuid })
           }
           break
+        case "no-access":
+          window.location.href = "https://www.google.com"
+          break
         default:
           logMessage("Acción desconocida recibida", "warning", true)
           break
@@ -200,7 +216,7 @@ async function initialize() {
     })
 
     cursorInterval = setInterval(() => {
-      if (hasMouseInWindow) {
+      if (hasMouseInWindow && socket.readyState === 1) {
         socket.send(
           encodeData({
             action: "cursor-move",
@@ -275,6 +291,12 @@ async function initialize() {
     if (closestHex) {
       const hexId = `${closestHex.row}-${closestHex.col}`
       if (cursorClickStatus === "player") {
+
+        // if hexagon is already player, do nothing
+        if (hexagonsMap.get(hexId)?.status === "player") {
+          return
+        }
+
         if (lastHexagonPlayer) {
           const lastHexagonId = `${lastHexagonPlayer.row}-${lastHexagonPlayer.col}`
           hexagonsMap.set(lastHexagonId, { status: "visible" })
@@ -397,13 +419,34 @@ const drawAllHexagons = (ctx, canvas, backgroundImage, hexagonsMap) => {
       }
 
       if (lastHexagonPlayer && cursorClickStatus === "player") {
-        if (lastHexagonPlayer.row === row && lastHexagonPlayer.col === col)
+        if (lastHexagonPlayer.row === row && lastHexagonPlayer.col === col) {
           continue
+        }
       }
 
       const hexId = `${row}-${col}`
       const hexStatus = hexagonsMap.get(hexId)?.status
       const isHidden = hexagonsMap.has(hexId) ? hexStatus === "hidden" : false
+
+      if (!isHidden) {
+        ctx.beginPath()
+        ctx.fillStyle = "transparent"
+        hexPoints.forEach(([dy, dx], i) => {
+          const px = x + (hexRadius + borderWeight) * dx
+          const py = y + (hexRadius + borderWeight) * dy
+          if (i === 0) {
+            ctx.moveTo(px, py)
+          } else {
+            ctx.lineTo(px, py)
+          }
+        })
+        ctx.closePath()
+        ctx.fill()
+        ctx.lineWidth = 2
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.35)"
+        ctx.stroke()
+      }
+
       drawHexagon(ctx, x, y, !isHidden, hexStatus)
     }
   }
@@ -429,13 +472,13 @@ const drawHexagon = (ctx, x, y, isHidden = false, status) => {
   ctx.closePath()
 
   if (status === "player") {
-    ctx.fillStyle = "blue"
+    ctx.fillStyle = "rgba(251, 146, 25, 0.3)"
   } else {
-    ctx.fillStyle = isHidden ? "transparent" : "#FFF5DC"
+    ctx.fillStyle = isHidden ? "transparent" : "rgba(255, 0, 0, 0.2)"
   }
   ctx.globalAlpha = 1
   ctx.fill()
-  ctx.strokeStyle = isHidden && "black"
+  ctx.strokeStyle = isHidden || "red"
   ctx.lineWidth = borderWeight
   ctx.stroke()
 }

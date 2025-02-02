@@ -69,11 +69,20 @@
         position: fixed;
         display: flex;
         justify-content: start;
-        align-items: start;
+        align-items: center;
         top: 10px;
         left: 10px;
         gap: 10px;
         z-index: 1000;
+      }
+
+      #player-id{
+        color: rgb(0, 0, 0);
+        font-weight: 700;
+        -webkit-text-stroke: .6px white;
+        font-size: 24px;
+        text-align: top;
+        pointer-events: none;
       }
 
       .button {
@@ -119,6 +128,9 @@
   <body>
     <div class="container">
       <div class="wrap">
+        <div class="fullscreen-container">
+          <div class="loading"></div>
+        </div>
         <canvas id="cursorCanvas" class="panzoom2"></canvas>
         <canvas id="canvas" class="panzoom"></canvas>
       </div>
@@ -130,6 +142,7 @@
       <button id="cursor-status" class="button player-button" onclick="changeCursorClickStatus()" data-status="player">
         Cambiar a Ficha Jugador
       </button>
+      <span id="player-id"></span>
     </div>
     <script src="./panzoom.js"></script>
     <script src="https://rawgit.com/kawanet/msgpack-lite/master/dist/msgpack.min.js"></script>
