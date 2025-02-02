@@ -3,221 +3,137 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hexagonal Map with Leaflet</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <title>Canvas Hexagons</title>
     <style>
+      html,
       body {
         margin: 0;
         padding: 0;
+        height: 100%;
+        background-color: lightgrey;
+        overflow: hidden;
+        min-height: 100%;
+        font-family: "Roboto", sans-serif;
       }
 
-      #map {
-        width: 100%;
+      .wrap {
+        position: relative;
+        width: 100vw;
         height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: black;
+        overflow: hidden;
       }
 
-      .leaflet-container {
-        background: black;
-        outline: 0;
+      #canvas,
+      #cursorCanvas {
+        position: absolute;
       }
 
-      #save-button {
-        margin: 10px;
-        padding: 10px 20px;
-        background-color: #007bff;
+      #canvas {
+        z-index: 1;
+        border: 1px solid black;
+        background-color: transparent;
+      }
+
+      #cursorCanvas {
+        z-index: 100;
+      }
+
+      .fullscreen-container {
+        position: fixed;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 1);
+        z-index: 1000;
+        transition: opacity 0.5s;
+      }
+
+      .loading {
+        width: 100px;
+        height: 100px;
+        border: 16px solid #f3f3f3;
+        border-top: 16px solid #3498db;
+        border-radius: 50%;
+        animation: spin 2s linear infinite;
+      }
+
+      .controls-container {
+        position: fixed;
+        display: flex;
+        justify-content: start;
+        align-items: start;
+        top: 10px;
+        left: 10px;
+        gap: 10px;
+        z-index: 1000;
+      }
+
+      .button {
+        background-color: #3498db;
         color: white;
         border: none;
+        border-radius: 5px;
         cursor: pointer;
-        display: none;
-      }
-    </style>
-    <link rel="icon" href="./favicon.svg" sizes="any" type="image/svg+xml">
-  </head>
-  <body>
-    <div id="map"></div>
-    <script src="https://rawgit.com/kawanet/msgpack-lite/master/dist/msgpack.min.js"></script>
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    <script>
-      let params = new URL(document.location).searchParams;
-      let key = params.get("key");
-      document.cookie = `key=${key}`;
-
-      if (!key) {
-        window.location.href = "https://www.google.com";
+        padding: 10px;
+        opacity: 0.2;
+        transition: opacity 0.3s;
+        z-index: 2000;
       }
 
-      const imageUrl = "bigMap.jpg";
-      const w = 3982, h = 5232;
-      const hexRadius = 36;
-      const borderWeight = 2;
-      const hexHeight = Math.sqrt(3) * (hexRadius + borderWeight);
-      const hexWidth = 2 * (hexRadius + borderWeight);
-      const vertDist = hexHeight;
-      const horizDist = hexWidth * 0.75;
-      const clickedHexagons = new Map();
+      .player-button {
+        background-color: #fb9119;
+      }
 
-      const map = L.map("map", {
-        crs: L.CRS.Simple,
-        minZoom: -2,
-        maxZoom: 1,
-        center: [h / 2, w / 2],
-        zoom: 1,
-        renderer: L.canvas(),
-        attributionControl: false,
-      });
+      .master-button {
+        background-color: #0f8602;
+      }
 
-      const imageBounds = [[0, 0], [h, w]];
-      L.imageOverlay(imageUrl, imageBounds).addTo(map);
+      .button:hover {
+        opacity: 1;
+      }
 
-      const hexPoints = Array.from({ length: 6 }, (_, i) => {
-        const angle = (Math.PI / 3) * i;
-        return [Math.sin(angle), Math.cos(angle)];
-      });
-
-      let hasDrawnInitialHexagons = false;
-
-      function drawHexagons() {
-        const bounds = map.getBounds();
-
-        for (let row = 0; row * vertDist < h + hexHeight; row++) {
-          for (let col = 0; col * horizDist < w + hexWidth; col++) {
-            const x = col * horizDist - 9.3;
-            const y = row * vertDist + (col % 2) * (hexHeight / 2) - 3.6;
-
-            const hexId = `${row}-${col}`;
-            const points = hexPoints.map(([dy, dx]) => [
-              y + (hexRadius + borderWeight) * dy,
-              x + (hexRadius + borderWeight) * dx,
-            ]);
-
-            if (points.every(([py, px]) => py >= 0 && py <= h && px >= 0 && px <= w) && bounds.contains([y, x])) {
-              const hex = clickedHexagons.get(hexId);
-              if (!hex) continue;
-
-              const isActive = hex.status === "visible";
-              const newPolygon = L.polygon(points, {
-                color: isActive ? "transparent" : "red",
-                fillColor: isActive ? "transparent" : "red",
-                fillOpacity: isActive ? 0 : 0.3,
-                weight: borderWeight,
-              }).addTo(map);
-
-              clickedHexagons.set(hexId, {
-                id: hexId,
-                status: isActive ? "visible" : "hidden",
-                polygon: newPolygon,
-              });
-
-              newPolygon.on("click", function () {
-                const currentHex = clickedHexagons.get(hexId);
-                const status = currentHex && currentHex.status === "visible" ? "hidden" : "visible";
-
-                clickedHexagons.set(hexId, { id: hexId, status, polygon: newPolygon });
-                updateHexagon(hexId, status);
-
-                websocket.send(msgpack.encode({
-                  action: "update-hexagon",
-                  payload: { id: hexId, status },
-                }));
-              });
-            }
-          }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
         }
       }
-
-      let websocket;
-      const hostname = window.location.hostname;
-      let wsURL = hostname === "localhost" ? `ws://${hostname}:7555` : `ws://${hostname}/ws`;
-
-      if (key) wsURL += "?key=" + key;
-
-      function connectWebSocket() {
-        websocket = new WebSocket(wsURL);
-
-        websocket.onopen = function () {
-          logMessage("Conectado al servidor WebSocket", "info");
-        };
-
-        websocket.onerror = function () {
-          logMessage("Error en la conexión. Intentando reconectar...", "warning");
-          setTimeout(connectWebSocket, 1000);
-        };
-
-        websocket.onmessage = async function (event) {
-          var blob = event.data;
-          const arrayBuffer = await blob.arrayBuffer();
-          const { payload: currentData, action } = msgpack.decode(new Uint8Array(arrayBuffer));
-
-          switch (action) {
-            case "initial-hexagons":
-              if (!hasDrawnInitialHexagons) {
-                currentData.forEach((hex) => clickedHexagons.set(hex.id, { ...hex, polygon: null }));
-                await drawHexagons();
-                logMessage("Hexágonos iniciales pintados", "info");
-                hasDrawnInitialHexagons = true;
-              }
-              break;
-            case "pong":
-              logMessage("Pong", "info");
-              break;
-            case "hexagon-update":
-              const { id: hexId, status } = currentData;
-              const hex = clickedHexagons.get(hexId);
-              if (!hex) return;
-              updateHexagon(hexId, status);
-              logMessage(`Hexágono ${hexId} actualizado a ${status}`, "info");
-              break;
-            case "no-access":
-              window.location.href = "https://www.google.com";
-              break;
-            default:
-              break;
-          }
-        };
-
-        websocket.onclose = function () {
-          logMessage("Conexión cerrada. Intentando reconectar...", "error");
-          setTimeout(connectWebSocket, 1000);
-        };
-      }
-
-      connectWebSocket();
-
-      setInterval(() => {
-        websocket.send(msgpack.encode({ action: "ping" }));
-      }, 5000);
-
-      map.on("moveend zoomend", () => {
-        map.eachLayer((layer) => {
-          if (layer instanceof L.Polygon) {
-            map.removeLayer(layer);
-          }
-        });
-        drawHexagons();
-      });
-
-      function updateHexagon(hexId, status) {
-        const hex = clickedHexagons.get(hexId);
-        if (!hex) return;
-
-        const isActive = status === "visible";
-        hex.polygon.setStyle({
-          color: isActive ? "transparent" : "red",
-          fillColor: isActive ? "transparent" : "red",
-          fillOpacity: isActive ? 0 : 0.3,
-        });
-        clickedHexagons.set(hexId, { ...hex, status });
-      }
-
-      function logMessage(message, level = "info") {
-        const colorMap = {
-          info: "green",
-          warning: "orange",
-          error: "red",
-        };
-        console.log(`%c[${new Date().toLocaleTimeString()}]: %c${message}`,
-          `color: ${colorMap[level]}`, "color: white");
-      }
-    </script>
+    </style>
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
+    <link rel="icon" href="./favicon.svg" sizes="any" type="image/svg+xml" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="wrap">
+        <canvas id="cursorCanvas" class="panzoom2"></canvas>
+        <canvas id="canvas" class="panzoom"></canvas>
+      </div>
+    </div>
+    <div class="controls-container">
+      <button class="button" onclick="handleCenterButtonClick()">
+        Ir al Centro
+      </button>
+      <button id="cursor-status" class="button player-button" onclick="changeCursorClickStatus()" data-status="player">
+        Cambiar a Ficha Jugador
+      </button>
+    </div>
+    <script src="./panzoom.js"></script>
+    <script src="https://rawgit.com/kawanet/msgpack-lite/master/dist/msgpack.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="./script-admin.js"></script>
   </body>
 </html>
