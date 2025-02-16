@@ -65,7 +65,6 @@ async function initialize() {
   mainCtx.drawImage(img, 0, 0, mainCanvas.width, mainCanvas.height)
 
   let mousePos = { x: 0, y: 0 }
-  let lerpSpeed = 0.1
 
   function drawAllCursors() {
     cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height)
@@ -92,11 +91,19 @@ async function initialize() {
     return start + (end - start) * t
   }
 
-  function updateCursorPositions() {
+  let lastFrameTime = performance.now()
+  const smoothingFactor = 18
+
+  function updateCursorPositions(currentTime) {
+    const dt = (currentTime - lastFrameTime) / 1000
+    lastFrameTime = currentTime
+    const t = 1 - Math.exp(-smoothingFactor * dt)
+
     cursorsArray.forEach((cursor) => {
-      cursor.x = lerp(cursor.x, cursor.targetX, lerpSpeed)
-      cursor.y = lerp(cursor.y, cursor.targetY, lerpSpeed)
+      cursor.x = lerp(cursor.x, cursor.targetX, t)
+      cursor.y = lerp(cursor.y, cursor.targetY, t)
     })
+
     drawAllCursors()
     requestAnimationFrame(updateCursorPositions)
   }
@@ -150,22 +157,29 @@ async function initialize() {
             }
             hexagonsMap.set(hexagon.id, { status: currentStatus })
           })
-          drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap)
+          drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap, true)
           if (lastHexagonId) {
             lastHexagonPlayer = hexIdToCoords(lastHexagonId)
           }
           await hideLoadingScreen()
           break
         case "hexagon-update":
-          if (lastHexagonPlayer) {
+          const { id, status } = currentData
+          if (lastHexagonPlayer && status === "player") {
             const lastHexagonId = `${lastHexagonPlayer.row}-${lastHexagonPlayer.col}`
-            hexagonsMap.set(lastHexagonId, { status: "visible" })
+            console.log(lastHexagonId)
+            console.log(currentData)
+            let currentStatus = hexagonsMap.get(lastHexagonId)
+            console.log(currentStatus)
+
+            if (currentStatus.status !== 'hidden') {
+              hexagonsMap.set(lastHexagonId, { status: "visible" })
+            }
           }
 
-          const { id, status } = currentData
           hexagonsMap.set(id, { status })
           logMessage(`Hexágono ${id} actualizado`, "info", true)
-          drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap)
+          drawAllHexagons(mainCtx, mainCanvas, img, hexagonsMap, true)
           if (status === "player") {
             lastHexagonPlayer = hexIdToCoords(id)
           }
@@ -233,7 +247,7 @@ async function initialize() {
   })
 
   setupWebSocket()
-  updateCursorPositions()
+  requestAnimationFrame(updateCursorPositions)
 }
 
 window.onload = async function () {
@@ -293,7 +307,13 @@ const encodeData = (data) => {
   return msgpack.encode(data)
 }
 
-const drawAllHexagons = (ctx, canvas, backgroundImage, hexagonsMap) => {
+const drawAllHexagons = (
+  ctx,
+  canvas,
+  backgroundImage,
+  hexagonsMap,
+  firstRender = false
+) => {
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height)
 
@@ -311,14 +331,15 @@ const drawAllHexagons = (ctx, canvas, backgroundImage, hexagonsMap) => {
         continue
       }
 
-      if (lastHexagonPlayer) {
-        if (lastHexagonPlayer.row === row && lastHexagonPlayer.col === col)
-          continue
-      }
-
       const hexId = `${row}-${col}`
       const hexStatus = hexagonsMap.get(hexId)?.status
-      const isHidden = hexagonsMap.has(hexId) ? hexStatus === "hidden" : false
+      let isHidden = hexagonsMap.has(hexId) ? hexStatus === "hidden" : false
+
+      if (lastHexagonPlayer && !firstRender) {
+        if (lastHexagonPlayer.row === row && lastHexagonPlayer.col === col)
+          isHidden = false
+      }
+
       drawHexagon(ctx, x, y, !isHidden, hexStatus)
     }
   }

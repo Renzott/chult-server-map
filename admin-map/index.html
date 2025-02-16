@@ -76,10 +76,49 @@
         z-index: 1000;
       }
 
-      #player-id{
+      .controls-hover-container {
+        position: absolute;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        bottom: -88px;
+        transition: bottom 0.2s;
+        left: 50%;
+        transform: translateX(-50%);
+        gap: 10px;
+        z-index: 1000;
+        background-color: transparent;
+        padding: 40px;
+      }
+
+      .controls-hover-container:hover {
+        bottom: -20px;
+      }
+
+      .controls-bar {
+        display: flex;
+        gap: 10px;
+        background-color: rgb(31, 30, 30);
+        padding: 10px;
+        padding-left: 15px;
+        padding-right: 15px;
+        border-radius: 10px;
+      }
+
+      .toolbar-button {
+        background-color: #ff9900;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        padding: 10px;
+        z-index: 2000;
+      }
+
+      #player-id {
         color: rgb(0, 0, 0);
         font-weight: 700;
-        -webkit-text-stroke: .6px white;
+        -webkit-text-stroke: 0.6px white;
         font-size: 24px;
         text-align: top;
         pointer-events: none;
@@ -98,15 +137,49 @@
       }
 
       .player-button {
-        background-color: #fb9119;
+        width: 40px !important;
+        background-color: #00790e;
       }
 
       .master-button {
-        background-color: #0f8602;
+        width: 40px !important;
+        background-color: #fb9119;
       }
 
-      .button:hover {
-        opacity: 1;
+      .center-button {
+        background-color: #0777ff;
+      }
+
+      .chip-status {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background-color: rgb(31, 30, 30);
+        color: white;
+        padding: 6px;
+        border-radius: 10px;
+        padding-left: 10px;
+        padding-right: 10px;
+        border-radius: 5px;
+        z-index: 2000;
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .circle-status {
+        background-color: #2efd00;
+        color: white;
+        padding: 5px;
+        border-radius: 50%;
+        z-index: 2000;
+        width: 5px;
+        height: 5px;
+      }
+
+      .chip-status-text {
+        font-size: 16px;
       }
 
       @keyframes spin {
@@ -135,14 +208,29 @@
         <canvas id="canvas" class="panzoom"></canvas>
       </div>
     </div>
-    <div class="controls-container">
-      <button class="button" onclick="handleCenterButtonClick()">
-        Ir al Centro
-      </button>
-      <button id="cursor-status" class="button player-button" onclick="changeCursorClickStatus()" data-status="player">
-        Cambiar a Ficha Jugador
-      </button>
-      <span id="player-id"></span>
+    <div class="controls-hover-container">
+      <div class="controls-bar">
+        <button
+          class="toolbar-button player-button"
+          id="cursor-status"
+          onclick="changeCursorClickStatus()"
+          data-status="player"
+        >
+          👁️
+        </button>
+        <button
+          class="toolbar-button center-button"
+          onclick="handleCenterButtonClick()"
+        >
+          🎯 Ir al Centro
+        </button>
+      </div>
+    </div>
+    <div class="chip-status">
+      <div id="chip-color" class="circle-status"></div>
+      <label id="chip-label" class="chip-status-text"
+        >Modo Ocultar/Mostrar Mapa</label
+      >
     </div>
     <script src="./panzoom.js"></script>
     <script src="https://rawgit.com/kawanet/msgpack-lite/master/dist/msgpack.min.js"></script>

@@ -13,14 +13,16 @@ async function initialize() {
   const uuid = localStorage.getItem("uuid") || uuid4()
   localStorage.setItem("uuid", uuid)
 
-  const playerId = document.getElementById("player-id")
-  playerId.innerText = `ID: ${uuid.slice(0, 4)}`
+  /* const playerId = document.getElementById("player-id")
+  playerId.innerText = `ID: ${uuid.slice(0, 4)}` */
 
   const panZoomInstance = PanZoom(".panzoom, .panzoom2", {
     increment: 0.1,
     minScale: 0.2,
     maxScale: 1,
   })
+
+  panZoomInstance.panning = false
 
   const imageUrl = "bigMap.jpg"
 
@@ -99,13 +101,22 @@ async function initialize() {
     return start + (end - start) * t
   }
 
-  function updateCursorPositions() {
-    cursorsArray.forEach((cursor) => {
-      cursor.x = lerp(cursor.x, cursor.targetX, lerpSpeed)
-      cursor.y = lerp(cursor.y, cursor.targetY, lerpSpeed)
-    })
-    drawAllCursors()
-    requestAnimationFrame(updateCursorPositions)
+  let lastFrameTime = performance.now();
+  const smoothingFactor = 18;
+
+  function updateCursorPositions(currentTime) {
+    const dt = (currentTime - lastFrameTime) / 1000;
+    lastFrameTime = currentTime;
+
+    const t = 1 - Math.exp(-smoothingFactor * dt);
+
+    cursorsArray.forEach(cursor => {
+      cursor.x = lerp(cursor.x, cursor.targetX, t);
+      cursor.y = lerp(cursor.y, cursor.targetY, t);
+    });
+
+    drawAllCursors();
+    requestAnimationFrame(updateCursorPositions);
   }
 
   this.changeCursorClickStatus = () => {
@@ -113,8 +124,16 @@ async function initialize() {
     const status = cursorStatus.getAttribute("data-status")
 
     let textStatus = {
-      master: "Cambiar a Ficha Master",
-      player: "Cambiar a Ficha Jugador",
+      master: {
+        icon: "♜",
+        chipText: "Modo Mover Ficha",
+        chipColor: '#fb9119'
+      },
+      player: {
+        icon: "👁️",
+        chipText: "Modo Ocultar/Mostrar Mapa",
+        chipColor: '#2efd00'
+      }
     }
 
     const newStatus = status === "master" ? "player" : "master"
@@ -123,7 +142,13 @@ async function initialize() {
     cursorStatus.classList.add(newStatus + "-button")
 
     cursorStatus.setAttribute("data-status", newStatus)
-    cursorStatus.innerText = textStatus[newStatus]
+    cursorStatus.innerText = textStatus[newStatus].icon
+
+    const chipColor = document.getElementById("chip-color")
+    chipColor.style.backgroundColor = textStatus[newStatus].chipColor
+
+    const chipText = document.getElementById("chip-label")
+    chipText.innerText = textStatus[newStatus].chipText
 
     document.body.style.cursor =
       newStatus === "master" ? "crosshair" : "default"
@@ -291,8 +316,6 @@ async function initialize() {
     if (closestHex) {
       const hexId = `${closestHex.row}-${closestHex.col}`
       if (cursorClickStatus === "player") {
-
-        // if hexagon is already player, do nothing
         if (hexagonsMap.get(hexId)?.status === "player") {
           return
         }
@@ -303,6 +326,10 @@ async function initialize() {
         }
         hexagonsMap.set(hexId, { status: "player" })
       } else {
+        if (hexagonsMap.get(hexId)?.status === "player") {
+          lastHexagonPlayer = null
+        }
+
         if (!hexagonsMap.has(hexId)) {
           hexagonsMap.set(hexId, { status: "hidden" })
         } else {
@@ -340,7 +367,7 @@ async function initialize() {
   })
 
   setupWebSocket()
-  updateCursorPositions()
+  requestAnimationFrame(updateCursorPositions);
 }
 
 window.onload = async function () {
@@ -387,7 +414,7 @@ const logMessage = (message, type = "info", showToast = false) => {
       text: message,
       duration: 3000,
       close: true,
-      gravity: "top",
+      gravity: "bottom",
       position: "right",
       style: {
         background: toastColor,
@@ -418,15 +445,16 @@ const drawAllHexagons = (ctx, canvas, backgroundImage, hexagonsMap) => {
         continue
       }
 
-      if (lastHexagonPlayer && cursorClickStatus === "player") {
-        if (lastHexagonPlayer.row === row && lastHexagonPlayer.col === col) {
-          continue
-        }
-      }
-
       const hexId = `${row}-${col}`
       const hexStatus = hexagonsMap.get(hexId)?.status
-      const isHidden = hexagonsMap.has(hexId) ? hexStatus === "hidden" : false
+      let isHidden = hexagonsMap.has(hexId) ? hexStatus === "hidden" : false
+
+
+      if (lastHexagonPlayer && cursorClickStatus === "player") {
+        if (lastHexagonPlayer.row === row && lastHexagonPlayer.col === col) {
+          isHidden = false
+        }
+      }
 
       if (!isHidden) {
         ctx.beginPath()
@@ -447,7 +475,7 @@ const drawAllHexagons = (ctx, canvas, backgroundImage, hexagonsMap) => {
         ctx.stroke()
       }
 
-      drawHexagon(ctx, x, y, !isHidden, hexStatus)
+      drawHexagon(ctx, x, y, !isHidden, hexStatus, hexId)
     }
   }
 }
@@ -457,7 +485,7 @@ const hexIdToCoords = (hexId) => {
   return { row, col }
 }
 
-const drawHexagon = (ctx, x, y, isHidden = false, status) => {
+const drawHexagon = (ctx, x, y, isHidden = false, status, hexID = '') => {
   if (isHidden && status != "player") return
   ctx.beginPath()
   hexPoints.forEach(([dy, dx], i) => {
@@ -472,7 +500,7 @@ const drawHexagon = (ctx, x, y, isHidden = false, status) => {
   ctx.closePath()
 
   if (status === "player") {
-    ctx.fillStyle = "rgba(251, 146, 25, 0.3)"
+    ctx.fillStyle = "rgba(251, 146, 25, 0.59)"
   } else {
     ctx.fillStyle = isHidden ? "transparent" : "rgba(255, 0, 0, 0.2)"
   }
